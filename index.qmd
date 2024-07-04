@@ -1,0 +1,549 @@
+---
+title: Evaluating model fit
+subtitle: For Bayesian diagnostic classification models
+author: W. Jake Thompson, Ph.D.
+format:
+  measr-slides-revealjs:
+    progress: false
+knitr:
+  opts_chunk: 
+    comment: "#>"
+    fig.width: 7
+    fig.asp: 0.618
+    fig.align: "center"
+code-link: true
+preload-iframes: true
+code-annotations: select
+filters:
+  - lua/output-line-highlight.lua
+---
+
+## Who am I?
+
+```{r setup}
+library(tidyverse)
+library(countdown)
+library(ggmeasr)
+library(knitr)
+library(measr)
+library(here)
+library(posterior)
+
+set_theme(plot_margin = margin(5, 0, 0, 0))
+```
+
+:::{.columns}
+:::{.column width="50%"}
+W. Jake Thompson, Ph.D.
+
+* Assistant Director of Psychometrics
+  * [ATLAS](https://atlas.ku.edu) | University of Kansas
+
+* Research: Applications of diagnostic psychometric models
+  * Lead psychometrician and Co-PI for the [Dynamic Learnings Maps](https://dynamiclearningmaps.org) assessments
+  * PI for an [IES-funded](https://ies.ed.gov/funding/grantsearch/details.asp?ID=4546) project to develop software for diagnostic models
+:::
+
+:::{.column width="50%"}
+:::{.center}
+
+```{r}
+#| label: profile-picture
+#| out-width: 50%
+#| fig-alt: |
+#|   Profile picture for Jake Thompson.
+
+include_graphics("figure/wjt-2022-hex.png")
+```
+
+:::{.small}
+{{< iconify fa6-brands github >}} &nbsp; [@wjakethompson](https://www.gitub.com/wjakethompson)  
+{{< iconify fa6-solid globe >}} &nbsp; [wjakethompson.com](https://wjakethompson.com)
+:::
+:::
+:::
+:::
+
+## Acknowledgements
+
+The research reported here was supported by the Institute of Education Sciences, U.S. Department of Education, through Grant [R305D210045](https://ies.ed.gov/funding/grantsearch/details.asp?ID=4546) to the University of Kansas. The opinions expressed are those of the authors and do not represent the views of the the Institute or the U.S. Department of Education. <br><br>
+
+:::{.columns}
+:::{.column width="15%"}
+:::
+
+:::{.column width="70%"}
+
+```{r}
+#| label: ies-logo
+#| out-width: 100%
+#| fig-align: center
+#| fig-alt: |
+#|   Logo for the Institute of Education Sciences.
+
+include_graphics("figure/IES_InstituteOfEducationSciences_RGB.png")
+```
+
+:::
+
+:::{.column width="15%"}
+:::
+:::
+
+## Model fit for DCMs
+
+* Absolute fit: How well does a model fit the data?
+  * Model-level (global) fit  
+  
+  :::{.fragment .semi-fade-out fragment-index=1}
+  * Item-level fit  
+  :::
+  
+  :::{.fragment .semi-fade-out fragment-index=1}
+  * Person-level fit
+  :::
+
+* Relative fit: How well does a model fit compared to another model?
+
+* Different methods available depending on how the model was estimated (e.g., maximum likelihood, MCMC)
+
+## Absolute fit with limited-information indices
+
+* Categorical response data create sparse data matrices
+  * 20 binary items: 2^20^ = `r prettyNum(2^20, big.mark = ",")` response patterns
+
+* Limited-information indices use lower-order summaries of the contingencies tables ([Maydue-Olivares & Joe, 2005](https://doi.org/10.1198/016214504000002069))
+
+* Most popular method for model fit in DCMs is the M~2~ ([Hansen et al., 2016](https://doi.org/10.1111/bmsp.12074); [Liu et al., 2016](https://doi.org/10.3102/1076998615621293))
+  * *p*-value < .05 indicates poor model fit
+  
+## Bayesian absolute fit
+
+* Not constrained to limited-information indices
+
+* Posterior predictive model checks (PPMCs)
+  * Generate new data sets from the posterior distribution
+  * Calculate summary statistics for each generated data set
+  * Compare the distribution to the observed value of the summary statistic
+
+* In this study, we examine a PPMC of the the raw score distribution ([Park et al., 2015](https://doi.org/10.1504/IJQRE.2015.071738); [Thompson, 2019](https://doi.org/10.35542/osf.io/jzqs8))
+
+## PPMC: Raw score by iteration {visibility="hidden"}
+
+```{r}
+#| label: read-taylor
+
+taylor_data <- read_rds(here("data", "taylor-data.rds"))
+taylor_qmatrix <- read_rds(here("data", "taylor-qmatrix.rds"))
+
+taylor_lcdm <- measr_dcm(
+  data = taylor_data, qmatrix = taylor_qmatrix,
+  resp_id = "album",
+  type = "lcdm",
+  method = "mcmc", backend = "rstan",
+  warmup = 1000, iter = 1500,
+  chains = 2, cores = 2,
+  file = here("fits", "taylor-lcdm")
+)
+
+raw_score_needed <- !file.exists(here("data", "taylor-raw-scores.rds"))
+```
+
+```{r}
+#| label: calc-raw-score
+#| eval: !expr raw_score_needed
+
+retain <- 500
+keep_draws <- sample(seq_len(ndraws(as_draws(taylor_lcdm))),
+                     size = retain)
+taylor_results <- predict(taylor_lcdm, summary = FALSE, force = TRUE)
+
+pi <- as_draws_df(taylor_lcdm) |> 
+  merge_chains() |> 
+  subset_draws(variable = "pi", draw = keep_draws) |> 
+  as_tibble() |> 
+  pivot_longer(starts_with("pi")) |> 
+  separate_wider_regex(name,
+                       patterns = c("pi\\[", item = "[0-9]*", ",", 
+                                    class = "[0-9]*", "\\]")) |> 
+  select(.draw, item, class, prob = value)
+
+format_draws <- function(x, keep) {
+  ret <- as_draws_df(x) |> 
+    merge_chains() |> 
+    subset_draws(draw = keep) |> 
+    as_tibble() |> 
+    select(.draw, starts_with("x")) |> 
+    pivot_longer(cols = -.draw, names_to = "resp_id", values_to = "prob")
+
+  return(ret)
+}
+
+all_draws <- vector(mode = "list", length = ncol(taylor_results$class_probabilities) - 1)
+for (i in seq_len(ncol(taylor_results$class_probabilities))[-1]) {
+  cur_name <- colnames(taylor_results$class_probabilities)[i]
+  ret <- format_draws(taylor_results$class_probabilities[[i]], keep = keep_draws) |> 
+    mutate(resp_id = str_replace(resp_id, "x\\[([0-9]*)\\]", "\\1"),
+           resp_id = as.integer(resp_id)) |> 
+    rename(!!cur_name := prob)
+  
+  all_draws[[i - 1]] <- ret
+}
+
+raw_scores <- all_draws |> 
+  reduce(full_join, join_by(.draw, resp_id)) |> 
+  pivot_longer(starts_with("[")) |> 
+  group_by(.draw, resp_id) |> 
+  mutate(class = 1:n()) |> 
+  slice_sample(n = 1, weight_by = value) |> 
+  ungroup() |> 
+  select(.draw, resp_id, class) |> 
+  mutate(.draw = as.integer(factor(.draw)),
+         class = as.character(class)) |> 
+  left_join(pi, join_by(.draw, class),
+            relationship = "many-to-many") |> 
+  mutate(rand = runif(n()),
+         score = as.integer(rand <= prob)) |> 
+  summarize(score = sum(score), .by = c(.draw, resp_id)) |> 
+  count(.draw, score)
+
+write_rds(raw_scores, here("data", "taylor-raw-scores.rds"))
+```
+
+```{r}
+#| label: read-raw-score
+
+raw_scores <- read_rds(here("data", "taylor-raw-scores.rds"))
+```
+
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each iteration, calculate the total number of respondents at each score point
+
+:::
+
+:::{.column width="70%"}
+
+```{r score-dist}
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Scatter plot showing the number of respondents at each score point in each
+#|   iteration.
+
+p <- ggplot() +
+  geom_point(data = raw_scores, aes(x = factor(score), y = n),
+             position = position_jitter(height = 0, seed = 1213),
+             alpha = 0.2, color = palette_measr[4]) +
+  scale_y_comma() +
+  labs(x = "Correct Responses", y = "Respondents")
+
+p
+```
+
+:::
+
+:::
+
+## PPMC: Expected counts, by raw score {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each iteration, calculate the total number of respondents at each score point
+
+* Calculate the expected number of respondents at each score point
+
+:::
+
+:::{.column width="70%"}
+
+```{r exp-score}
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Scatter plot showing the number of respondents at each score point in each
+#|   iteration with the average number of respondents overlayed.
+
+exp_scores <- summarize(raw_scores, n = mean(n), .by = score)
+
+p <- p +
+  geom_point(data = exp_scores, aes(x = factor(score), y = n),
+             color = palette_measr[1], shape = 18, size = 5) +
+  geom_line(data = exp_scores, aes(x = factor(score), y = n),
+            group = 1, color = palette_measr[1])
+
+p
+```
+
+:::
+
+:::
+
+## PPMC: Observed counts {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each iteration, calculate the total number of respondents at each score point
+
+* Calculate the expected number of respondents at each score point
+
+* Calculate the <span style="color: #D7263D;">observed</span> number of respondents at each score point
+
+:::
+
+:::{.column width="70%"}
+
+```{r obs-score}
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Scatter plot showing the number of respondents at each score point in each
+#|   iteration with the average and observed number of respondents overlayed.
+
+obs_scores <- taylor_data |> 
+  pivot_longer(-album) |> 
+  summarize(score = sum(value), .by = album) |> 
+  count(score)
+
+p <- p +
+  geom_point(data = obs_scores, aes(x = factor(score), y = n),
+             color = palette_measr[2], shape = 16, size = 5) +
+  geom_line(data = obs_scores, aes(x = factor(score), y = n),
+            color = palette_measr[2], group = 1)
+
+p
+```
+
+:::
+
+:::
+
+## PPMC: &chi;^2^ summary statistic {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each replication, calculate a &chi;^2^~rep~ statistic
+
+:::
+
+:::{.column width="70%"}
+
+```{r}
+#| label: example-dist-compare
+#| class-output: short
+#| attr-output: 'style="max-height: 250px;"'
+
+ppmc_chisq <- raw_scores |> 
+  complete(.draw, score, fill = list(n = 0L)) |> 
+  full_join(rename(exp_scores, exp = n), join_by(score)) |> 
+  arrange(.draw, score) |> 
+  mutate(piece = ((n - exp) ^ 2) / exp) |> 
+  summarize(chisq = sum(piece), .by = .draw)
+
+raw_scores |> 
+  filter(.draw == 13) |> 
+  full_join(exp_scores, by = "score") |> 
+  rename(replication_n = n.x, expected = n.y)
+```
+
+$$
+\chi^2_{rep} = \sum_{s=0}^S\frac{[n_s - E(n_s)]^2}{E(n_s)}
+$$
+
+```{r}
+#| label: example-chisq
+
+ppmc_chisq |> 
+  filter(.draw == 13) |> 
+  pull(chisq)
+```
+
+:::
+
+:::
+
+## PPMC: &chi;^2^ distribution {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each replication, calculate a &chi;^2^~rep~ statistic
+
+* Create a distribution of the expected value of the &chi;^2^ statistic
+
+:::
+
+:::{.column width="70%"}
+
+```{r chisq-dist}
+#| label: chisq-dist
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Histogram of the chi-square values from each iteration.
+
+p <- ggplot() +
+  geom_histogram(data = ppmc_chisq, aes(x = chisq),
+                 binwidth = 2, boundary = 0,
+                 fill = palette_measr[1], color = palette_measr[4]) +
+  labs(x = "&chi;<sup>2</sup><sub>rep</sub>", y = "Replications") +
+  theme(axis.title.x = ggtext::element_markdown(family = "sans"))
+
+p
+```
+
+:::
+
+:::
+
+## PPMC: &chi;^2^ observed value {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* For each replication, calculate a &chi;^2^~rep~ statistic
+
+* Create a distribution of the expected value of the &chi;^2^ statistic
+
+* Calculate the &chi;^2^ value comparing the <span style="color: #D7263D;">observed</span> data to the expectation
+
+:::
+
+:::{.column width="70%"}
+
+```{r}
+#| label: chisq-obs
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Histogram of the chi-square values from each iteration with a dashed
+#|   vertical line indicating the value from the observed data.
+
+obs_chisq <- obs_scores |> 
+  full_join(rename(exp_scores, exp = n), join_by(score)) |> 
+  replace_na(list(n = 0L)) |> 
+  arrange(score) |> 
+  mutate(piece = ((n - exp) ^ 2) / exp) |> 
+  summarize(chisq = sum(piece))
+
+p <- p +
+  geom_vline(xintercept = obs_chisq$chisq,
+             linetype = "dashed", color = palette_measr[2],
+             linewidth = 1)
+
+p
+```
+
+:::
+
+:::
+
+## PPMC: Posterior predictive *p*-value {visibility="hidden"}
+
+:::{.columns}
+
+:::{.column width="30%"}
+
+* Calculate the proportion of &chi;^2^~rep~ draws greater than our observed value
+
+* Flag if the observed value is outside a predefined boundary (e.g., .025 < *ppp* < 0.975)
+
+* In our example *ppp* = `r round(mean(ppmc_chisq$chisq > obs_chisq$chisq), digits = 3)`
+
+:::
+
+:::{.column width="70%"}
+
+```{r}
+#| label: chisq-obs
+#| out-width: 100%
+#| out-height: 50%
+#| fig-alt: |
+#|   Histogram of the chi-square values from each iteration with a dashed
+#|   vertical line indicating the value from the observed data.
+```
+
+:::
+
+:::
+
+## Relative fit
+
+
+## The Current Study
+
+:::{.columns}
+
+:::{.column width="50%"}
+
+* Simulation study...
+
+:::
+
+:::{.column width="50%"}
+
+:::{.center}
+Preprint
+:::
+
+```{r}
+#| label: preprint-qr-code
+#| out-width: 70%
+#| fig-alt: |
+#|  QR code linking to https://doi.org/10.35542/osf.io/ytjq9
+
+include_graphics(here("figure", "preprint-qr.png"))
+```
+
+:::
+
+:::
+
+# Thank you! {.thank-you data-menu-title="Get in touch" background-color="#023047"}
+
+:::{.columns .v-center-container}
+
+:::{.column .image width="65%"}
+
+```{r}
+#| label: measr-hex
+#| out-width: 50%
+#| fig-alt: |
+#|   Hex logo for the measr R package.
+```
+
+:::
+
+:::{.column width="35%"}
+
+:::{.thank-you-subtitle}
+
+:::{.small}
+
+{{< iconify fa6-solid globe >}} \ [wjakethompson.com](https://wjakethompson.com)  
+{{< iconify fa6-solid envelope >}} \ [wjakethompson@ku.edu](mailto:wjakethompson@ku.edu)  
+{{< iconify fa6-brands linkedin >}} \ [in/wjakethompson](https://linkedin.com/in/wjakethompson)  
+{{< iconify fa6-brands github >}} \ [@wjakethompson](https://github.com/wjakethompson)  
+{{< iconify fa6-brands mastodon >}} \ [@wjakethompson@fosstodon.org](https://fosstodon.org/@wjakethompson)  
+{{< iconify fa6-brands bluesky >}} \ [@wjakethompson.com](https://bsky.app/profile/wjakethompson.com)  
+{{< iconify fa6-brands threads >}} \ [@wjakethompson](https://www.threads.net/@wjakethompson)  
+{{< iconify fa6-brands x-twitter >}} \ [@wjakethompson](https://twitter.com/wjakethompson)  
+
+:::
+
+:::
+
+:::
+
+:::
