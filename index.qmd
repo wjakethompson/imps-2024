@@ -127,8 +127,393 @@ include_graphics("figure/IES_InstituteOfEducationSciences_RGB.png")
   * Compare the distribution to the observed value of the summary statistic
 
 * In this study, we examine a PPMC of the the raw score distribution ([Park et al., 2015](https://doi.org/10.1504/IJQRE.2015.071738); [Thompson, 2019](https://doi.org/10.35542/osf.io/jzqs8))
+  * 0.025 < *ppp* < 0.975 indicates good model fit
 
-## PPMC: Raw score by iteration {visibility="hidden"}
+## Relative fit
+
+* Information criteria such as the AIC ([Akaike, 1973](https://doi.org/10.1007/978-1-4612-1694-0_15)), BIC ([Schwarz, 1978](https://doi.org/10.1214/aos/1176344136)), or similar
+
+* Compare the information criteria for each competing model
+  * Index with the lowest value is preferred
+
+* These methods are often inappropriate when using a Bayesian estimation process (e.g., MCMC; [Hollenbach & Montgomery, 2020](https://doi.org/10.4135/9781526486387))
+
+## Bayesian relative fit
+
+* Information criteria that are designed for Bayesian estimation methods
+
+* Leave-one-out (LOO) cross validation with Pareto-smoothed importance sampling ([Vehtari et al., 2017](https://doi.org/10.1007/s11222-016-9696-4))
+  * Asymptotically equivalent to the widely applicable information criterion (WAIC; [Watanabe, 2010](http://jmlr.org/papers/v11/watanabe10a.html)), but performs better in a wider range of conditions ([Gelman et al., 2014](https://doi.org/10.1007/s11222-013-9416-2)).
+  
+* As with more traditional methods, we compare the LOO for each competing model
+  * Index with the lowest value is preferred
+  * Can also calculate the standard error of the difference to help determine if the difference is meaningful
+
+## State of the field
+
+* Assessment of model fit is primarily limited to methods that rely on point estimates (e.g., M~2~, AIC, BIC)
+
+* Research has not compared the efficacy of Bayesian measures of model fit to the more commonly used measures
+
+* Recent software advances have made Bayesian estimation of DCMs more accessible to applied researchers
+  * blatent ([Templin, 2023](https://doi.org/10.32614/CRAN.package.blatent))
+  * measr ([Thompson, 2024](https://doi.org/10.32614/CRAN.package.measr))
+
+## {.empty data-menu-title="measr" background-color="#023047" background-iframe="grid-worms/index.html"}
+
+```{r}
+#| label: measr-hex
+#| out-width: 100%
+#| fig-alt: |
+#|   Hex logo for the measr R package.
+
+include_graphics("figure/measr-hex.png")
+```
+
+## {.empty data-menu-title="Stan + measr" background-color="#FFFFFF"}
+
+```{r}
+#| label: stan-measr
+#| out-width: 100%
+#| fig-alt: |
+#|   Stan logo and measr hex logo.
+
+include_graphics("figure/combined-logos.png")
+```
+
+## The current study
+
+:::{.columns}
+
+:::{.column width="50%"}
+
+* Simulation study to evaluate the efficacy of Bayesian measures of model fit
+
+* Research questions:
+  1. Do Bayesian measures provide an accurate assessment of model fit?
+  2. How does the accuracy compare to more common methods for assessing model fit (e.g., M~2~)?
+
+:::
+
+:::{.column width="50%"}
+
+:::{.center}
+Preprint
+:::
+
+```{r}
+#| label: preprint-qr-code
+#| out-width: 70%
+#| fig-alt: |
+#|  QR code linking to https://doi.org/10.35542/osf.io/ytjq9
+
+include_graphics(here("figure", "preprint-qr.png"))
+```
+
+:::
+
+:::
+
+## Simulation design
+
+* 8 test design conditions
+  * Attributes: 2 or 3
+  * Items per attribute: 5 or 7
+  * Sample size: 500 or 1,000
+
+* Within each test design condition, we manipulated the data-generating and estimated model, for 4 total modeling conditions
+  * Loglinear cognitive diagnostic model (LCDM; [Henson et al., 2009](https://doi.org/10.1007/s11336-008-9089-5))
+  * Deterministic-input, noisy "and" gate (DINA; [de la Torre & Douglas, 2004](https://doi.org/10.1007/BF02295640))
+  
+* 32 conditions total, each repeated 50 times
+
+## Expected outcomes
+
+<br>
+```{r}
+library(gt)
+
+crossing(generate = c("LCDM", "DINA"), estimate = c("LCDM", "DINA")) |> 
+  mutate(abs = case_when(generate == estimate | estimate == "LCDM" ~ "No",
+                         .default = "Yes"),
+         rel = generate) |> 
+  rename(`Generating model` = generate,
+         `Estimated model` = estimate,
+         `Absolute-fit flag` = abs,
+         `Relative-fit preference` = rel) |> 
+  gt() |> 
+  cols_align(align = "center") |> 
+  tab_options(table.font.names = "Open Sans",
+              table.font.size = 30,
+              column_labels.padding.horizontal = px(50)) |> 
+  tab_style(style = cell_text(weight = "bold"),
+            locations = cells_column_labels()) |> 
+  tab_style(style = cell_borders(sides = "bottom", color = "black"),
+            locations = cells_body(rows = 2)) |> 
+  tab_style(style = cell_borders(sides = c("top", "bottom"),
+                                 weight = px(3)),
+            locations = cells_column_labels()) |> 
+  tab_style(style = cell_borders(sides = "bottom", weight = px(3)),
+            locations = cells_body(rows = 4))
+```
+
+## Results: Absolute fit
+
+```{r}
+#| label: read-results
+#| include: false
+
+results <- read_rds(here("data", "sim_results.rds")) |> 
+  pluck("all_reps")
+```
+
+```{r}
+#| label: calc-abs-fit
+#| include: false
+
+ppv <- function(x, truth, estimate) {
+  x |> 
+    select({{ truth }}, {{ estimate }}) |> 
+    summarize(ppv = sum({{ truth }} & {{ estimate }}) / 
+                sum({{ estimate }})) |> 
+    pull(ppv)
+}
+npv <- function(x, truth, estimate) {
+  x |> 
+    select({{ truth }}, {{ estimate }}) |> 
+    summarize(npv = sum(!{{ truth }} & !{{ estimate }}) /
+                sum(!{{ estimate }})) |> 
+    pull(npv)
+}
+
+abs_fit <- results |> 
+  select(cond:rep, starts_with("lcdm_"), starts_with("dina_")) |> 
+  pivot_longer(cols = -c(cond:rep),
+               names_to = c("estimate", "metric"),
+               names_pattern = c("([a-z]{4})_(.*)"),
+               values_to = "value") |> 
+  pivot_wider(names_from = metric, values_from = value) |> 
+  relocate(estimate, .after = generate) |> 
+  select(cond:rep, m2, m2_pval, ppmc_ppp) |> 
+  mutate(true_flag = generate == "lcdm" & estimate == "dina",
+         m2_flag = m2_pval < .05,
+         ppmc_flag = ppmc_ppp < .05)
+
+cond_abs_fit <- abs_fit |> 
+  nest(flags = -c(attributes, items, sample_size)) |> 
+  mutate(m2_ppv = map_dbl(flags,
+                          \(x) ppv(x, truth = true_flag, estimate = m2_flag)),
+         m2_npv = map_dbl(flags,
+                          \(x) npv(x, truth = true_flag, estimate = m2_flag)),
+         ppmc_ppv = map_dbl(flags,
+                          \(x) ppv(x, truth = true_flag, estimate = ppmc_flag)),
+         ppmc_npv = map_dbl(flags,
+                          \(x) npv(x, truth = true_flag, estimate = ppmc_flag)))
+
+overall_abs_fit <- abs_fit |> 
+  select(cond:rep, m2, m2_pval, ppmc_ppp) |> 
+  mutate(true_flag = generate == "lcdm" & estimate == "dina",
+         m2_flag = m2_pval < .05,
+         ppmc_flag = ppmc_ppp < .05) |> 
+  nest(flags = everything()) |> 
+  mutate(m2_ppv = map_dbl(flags,
+                          \(x) ppv(x, truth = true_flag, estimate = m2_flag)),
+         m2_npv = map_dbl(flags,
+                          \(x) npv(x, truth = true_flag, estimate = m2_flag)),
+         ppmc_ppv = map_dbl(flags,
+                          \(x) ppv(x, truth = true_flag, estimate = ppmc_flag)),
+         ppmc_npv = map_dbl(flags,
+                          \(x) npv(x, truth = true_flag, estimate = ppmc_flag))) |> 
+  select(-flags) |> 
+  pivot_longer(cols = everything()) |> 
+  deframe()
+```
+
+```{r}
+#| label: fig-abs-cond
+#| fig-asp: 0.42
+#| fig-width: 8
+#| fig-alt: |
+#|   Four line graphs showing the positive and negative predictive values for
+#|   each measure of absolute model fit, by test design condition.
+#| out-width: "100%"
+
+library(ggtext)
+
+cond_abs_fit |> 
+  select(-flags) |> 
+  pivot_longer(cols = matches("_[pn]pv$")) |> 
+  separate_wider_delim(name, delim = "_", names = c("fit_meas", "stat")) |> 
+  mutate(attributes = factor(attributes, levels = c(2, 3),
+                             labels = c("Two attributes", "Three attributes")),
+         items = factor(items, levels = c(5, 7)),
+         sample_size = factor(sample_size, levels = c(500, 1000),
+                              labels = c("500", "1,000")),
+         fit_meas = factor(fit_meas, levels = c("m2", "ppmc"),
+                           labels = c("M<sub>2</sub>", "PPMC &chi;^2^")),
+         stat = factor(stat, levels = c("ppv", "npv"),
+                       labels = c("Positive<br>predictive<br>value",
+                                  "Negative<br>predictive<br>value")),
+         grp = paste0(attributes, items, fit_meas)) |> 
+  ggplot() +
+  facet_grid(cols = vars(attributes), rows = vars(stat)) +
+  geom_point(aes(x = sample_size, y = value, shape = items, color = fit_meas)) +
+  geom_line(aes(x = sample_size, y = value, linetype = items, color = fit_meas,
+                group = grp)) +
+  scale_color_manual(values = palette_measr[c(2, 1)]) +
+  expand_limits(y = c(0.6, 1)) +
+  labs(x = "Sample size", y = "Predictive value",
+       shape = "Items per attribute", linetype = "Items per attribute",
+       color = "Absolute-fit metric") +
+  theme(strip.text = element_markdown(hjust = 0.5),
+        legend.text = element_markdown()) +
+  guides(color = guide_legend(order = 1))
+```
+
+## Results: Relative fit
+
+```{r}
+#| label: calc-rel-fit
+#| include: false
+
+both_fit <- abs_fit |> 
+  select(cond:rep, ppmc_ppp) |> 
+  pivot_wider(names_from = estimate, values_from = ppmc_ppp) |> 
+  filter(lcdm > .05, dina > .05)
+
+rel_fit <- results |> 
+  semi_join(both_fit,
+            join_by(cond, attributes, items, sample_size, generate, rep)) |> 
+  select(cond:rep, starts_with("loo_"), starts_with("waic_")) |> 
+  mutate(loo_decision = case_when(!loo_sig & generate == "dina" ~ "correct",
+                                  !loo_sig & generate != "dina" ~ "wrong",
+                                  loo_prefer == generate ~ "correct",
+                                  loo_prefer != generate ~ "wrong"))
+
+cond_rel_fit <- rel_fit |> 
+  summarize(reps = n(),
+            loo_correct = sum(loo_decision == "correct"),
+            loo_wrong = sum(loo_decision == "wrong"),
+            .by = c(attributes, items, sample_size, generate)) |> 
+    mutate(pct_correct = loo_correct / reps)
+
+overall_rel_fit <- rel_fit |> 
+  summarize(loo_correct = sum(loo_decision == "correct"),
+            loo_wrong = sum(loo_decision == "wrong")) |> 
+  pivot_longer(cols = everything()) |> 
+  deframe()
+```
+
+```{r}
+#| label: fig-rel-cond
+#| fig-asp: 0.42
+#| fig-width: 8
+#| fig-alt: |
+#|   Two line graphs showing the proportion of replications where the
+#|   data-generating model was correctly selected, by test design condition.
+#| out-width: "100%"
+
+cond_rel_fit |> 
+  select(attributes:reps, pct_correct) |> 
+  mutate(attributes = factor(attributes, levels = c(2, 3),
+                             labels = c("Two attributes", "Three attributes")),
+         items = factor(items, levels = c(5, 7)),
+         sample_size = factor(sample_size, levels = c(500, 1000),
+                              labels = c("500", "1,000")),
+         generate = factor(generate, levels = c("dina", "lcdm"),
+                           labels = c("DINA", "LCDM")),
+         grp = paste0(attributes, items, generate)) |> 
+  ggplot() +
+  facet_grid(cols = vars(attributes)) +
+  geom_point(aes(x = sample_size, y = pct_correct, shape = items, color = generate)) +
+  geom_line(aes(x = sample_size, y = pct_correct, linetype = items, color = generate, group = grp)) +
+  scale_y_percent() +
+  scale_color_manual(values = palette_measr[c(2, 1)]) +
+  expand_limits(y = c(0.6, 1)) +
+  labs(x = "Sample size", y = "Repetitions With Correct Selection",
+       color = "Data-generating model",
+       shape = "Items per attribute", linetype = "Items per attribute") +
+  theme(strip.text = element_markdown(hjust = 0.5),
+        legend.text = element_markdown())
+```
+
+## Conclusions
+
+* Bayesian methods performed as well or better for absolute fit
+
+* Bayesian methods for relative fit performed as well or better than has been reported for other non-Bayesian information criteria
+
+* Future directions
+  * Larger, more complex test designs
+  * Comparison to additional metrics (e.g., RMSEA, SRMSR)
+
+## Learn more about measr
+
+:::{.columns .v-center-container-slide}
+
+:::{.column .center}
+```{r}
+#| label: measr-hex
+#| out-width: 60%
+#| fig-alt: |
+#|   Hex logo for the measr R package.
+```
+:::
+
+:::{.column}
+
+:::{.large .spaced}
+{{< fa globe >}} [measr documentation](https://measr.info)
+
+{{< fa brands github >}} [wjakethompson/measr](https://github.com/wjakethompson/measr)
+:::
+
+:::
+
+:::
+
+
+# Thank you! {.thank-you data-menu-title="Get in touch" background-color="#023047"}
+
+:::{.columns .v-center-container}
+
+:::{.column .image width="65%"}
+
+```{r}
+#| label: measr-hex
+#| out-width: 50%
+#| fig-alt: |
+#|   Hex logo for the measr R package.
+```
+
+:::
+
+:::{.column width="35%"}
+
+:::{.thank-you-subtitle}
+
+:::{.small}
+
+{{< iconify fa6-solid globe >}} \ [wjakethompson.com](https://wjakethompson.com)  
+{{< iconify fa6-solid envelope >}} \ [wjakethompson@ku.edu](mailto:wjakethompson@ku.edu)  
+{{< iconify fa6-brands linkedin >}} \ [in/wjakethompson](https://linkedin.com/in/wjakethompson)  
+{{< iconify fa6-brands github >}} \ [@wjakethompson](https://github.com/wjakethompson)  
+{{< iconify fa6-brands mastodon >}} \ [@wjakethompson@fosstodon.org](https://fosstodon.org/@wjakethompson)  
+{{< iconify fa6-brands bluesky >}} \ [@wjakethompson.com](https://bsky.app/profile/wjakethompson.com)  
+{{< iconify fa6-brands threads >}} \ [@wjakethompson](https://www.threads.net/@wjakethompson)  
+{{< iconify fa6-brands x-twitter >}} \ [@wjakethompson](https://twitter.com/wjakethompson)  
+
+:::
+
+:::
+
+:::
+
+:::
+
+# Appendix: Calculating the PPMC<br>raw score distribution &chi;^2^
+
+## PPMC: Raw score by iteration {visibility="uncounted"}
 
 ```{r}
 #| label: read-taylor
@@ -248,7 +633,7 @@ p
 
 :::
 
-## PPMC: Expected counts, by raw score {visibility="hidden"}
+## PPMC: Expected counts, by raw score {visibility="uncounted"}
 
 :::{.columns}
 
@@ -284,7 +669,7 @@ p
 
 :::
 
-## PPMC: Observed counts {visibility="hidden"}
+## PPMC: Observed counts {visibility="uncounted"}
 
 :::{.columns}
 
@@ -325,7 +710,7 @@ p
 
 :::
 
-## PPMC: &chi;^2^ summary statistic {visibility="hidden"}
+## PPMC: &chi;^2^ summary statistic {visibility="uncounted"}
 
 :::{.columns}
 
@@ -371,7 +756,7 @@ ppmc_chisq |>
 
 :::
 
-## PPMC: &chi;^2^ distribution {visibility="hidden"}
+## PPMC: &chi;^2^ distribution {visibility="uncounted"}
 
 :::{.columns}
 
@@ -406,7 +791,7 @@ p
 
 :::
 
-## PPMC: &chi;^2^ observed value {visibility="hidden"}
+## PPMC: &chi;^2^ observed value {visibility="uncounted"}
 
 :::{.columns}
 
@@ -449,7 +834,7 @@ p
 
 :::
 
-## PPMC: Posterior predictive *p*-value {visibility="hidden"}
+## PPMC: Posterior predictive *p*-value {visibility="uncounted"}
 
 :::{.columns}
 
@@ -473,76 +858,6 @@ p
 #|   Histogram of the chi-square values from each iteration with a dashed
 #|   vertical line indicating the value from the observed data.
 ```
-
-:::
-
-:::
-
-## Relative fit
-
-
-## The Current Study
-
-:::{.columns}
-
-:::{.column width="50%"}
-
-* Simulation study...
-
-:::
-
-:::{.column width="50%"}
-
-:::{.center}
-Preprint
-:::
-
-```{r}
-#| label: preprint-qr-code
-#| out-width: 70%
-#| fig-alt: |
-#|  QR code linking to https://doi.org/10.35542/osf.io/ytjq9
-
-include_graphics(here("figure", "preprint-qr.png"))
-```
-
-:::
-
-:::
-
-# Thank you! {.thank-you data-menu-title="Get in touch" background-color="#023047"}
-
-:::{.columns .v-center-container}
-
-:::{.column .image width="65%"}
-
-```{r}
-#| label: measr-hex
-#| out-width: 50%
-#| fig-alt: |
-#|   Hex logo for the measr R package.
-```
-
-:::
-
-:::{.column width="35%"}
-
-:::{.thank-you-subtitle}
-
-:::{.small}
-
-{{< iconify fa6-solid globe >}} \ [wjakethompson.com](https://wjakethompson.com)  
-{{< iconify fa6-solid envelope >}} \ [wjakethompson@ku.edu](mailto:wjakethompson@ku.edu)  
-{{< iconify fa6-brands linkedin >}} \ [in/wjakethompson](https://linkedin.com/in/wjakethompson)  
-{{< iconify fa6-brands github >}} \ [@wjakethompson](https://github.com/wjakethompson)  
-{{< iconify fa6-brands mastodon >}} \ [@wjakethompson@fosstodon.org](https://fosstodon.org/@wjakethompson)  
-{{< iconify fa6-brands bluesky >}} \ [@wjakethompson.com](https://bsky.app/profile/wjakethompson.com)  
-{{< iconify fa6-brands threads >}} \ [@wjakethompson](https://www.threads.net/@wjakethompson)  
-{{< iconify fa6-brands x-twitter >}} \ [@wjakethompson](https://twitter.com/wjakethompson)  
-
-:::
-
-:::
 
 :::
 
