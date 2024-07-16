@@ -475,24 +475,30 @@ cond_rel_fit |>
 
 # Thank you! {.thank-you data-menu-title="Get in touch" background-color="#023047"}
 
-:::{.columns .v-center-container}
+<br>
 
-:::{.column .image width="65%"}
+:::{.columns}
+
+:::{.column .image width="55%"}
+
+:::{.center}
+Slides
+:::
 
 ```{r}
-#| label: measr-hex
+#| label: slides-qr-code
 #| out-width: 50%
 #| fig-alt: |
-#|   Hex logo for the measr R package.
+#|  QR code linking to https://imps2024.measr.info
+
+include_graphics(here("figure", "slides-qr.png"))
 ```
 
 :::
 
-:::{.column width="35%"}
+:::{.column width="45%"}
 
 :::{.thank-you-subtitle}
-
-:::{.small}
 
 {{< iconify fa6-solid globe >}} \ [wjakethompson.com](https://wjakethompson.com)  
 {{< iconify fa6-solid envelope >}} \ [wjakethompson@ku.edu](mailto:wjakethompson@ku.edu)  
@@ -502,8 +508,6 @@ cond_rel_fit |>
 {{< iconify fa6-brands bluesky >}} \ [@wjakethompson.com](https://bsky.app/profile/wjakethompson.com)  
 {{< iconify fa6-brands threads >}} \ [@wjakethompson](https://www.threads.net/@wjakethompson)  
 {{< iconify fa6-brands x-twitter >}} \ [@wjakethompson](https://twitter.com/wjakethompson)  
-
-:::
 
 :::
 
